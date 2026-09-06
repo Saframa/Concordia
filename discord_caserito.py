@@ -716,76 +716,167 @@ class ScreenCaptureStreamer:
 
         rtsp_url = f"rtsp://{host_ip}:8554/live/{username}"
 
-        # Obtener dimensiones nativas del monitor primario
+        # Obtener dimensiones nativas del monitor primario y virtual desktop
         screen_w = 1920
         screen_h = 1080
+        virt_x = 0
+        virt_y = 0
         try:
             import ctypes
             user32 = ctypes.windll.user32
-            screen_w = user32.GetSystemMetrics(0)
-            screen_h = user32.GetSystemMetrics(1)
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            except Exception:
+                try:
+                    user32.SetProcessDPIAware()
+                except Exception:
+                    pass
+
+            screen_w = user32.GetSystemMetrics(0) # SM_CXSCREEN (ancho primario)
+            screen_h = user32.GetSystemMetrics(1) # SM_CYSCREEN (alto primario)
+            virt_x = user32.GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+            virt_y = user32.GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
         except Exception:
             pass
 
         codec, codec_flags = HardwareEncoderDetector.get_best_encoder(ffmpeg_bin)
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 
-        # Intento 1: GDI Grab a 60 FPS con codificador detectado (NVENC si es NVIDIA, libx264 si no)
-        attempts = [
-            (codec, codec_flags),
-        ]
+        # Lista de codificadores para probar (GPU primero, CPU después)
+        encoder_combos = [(codec, codec_flags)]
         if codec != "libx264":
-            # Fallback seguro a libx264 si NVENC fallara en runtime
-            attempts.append((
+            encoder_combos.append((
                 "libx264",
                 ["-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p", "-threads", "4"]
             ))
 
-        for enc_name, enc_flags in attempts:
-            cmd_gdi = [
-                ffmpeg_bin,
-                "-hide_banner",
-                "-loglevel", "error",
-                "-f", "gdigrab",
-                "-framerate", "60",
-                "-offset_x", "0",
-                "-offset_y", "0",
-                "-video_size", f"{screen_w}x{screen_h}",
-                "-i", "desktop",
-                "-vf", "scale=min(1920\\,iw):-2,format=yuv420p",
-                "-c:v", enc_name,
-                *enc_flags,
-                "-b:v", "3000k",
-                "-maxrate", "3500k",
-                "-bufsize", "1500k",
-                "-f", "rtsp",
-                "-rtsp_transport", "tcp",
-                rtsp_url
-            ]
+        # Construir lista de candidatos ordenada de mejor a fallback:
+        # 1. Desktop Duplication API (ddagrab) en monitor principal (output 0)
+        #    -> Captura por GPU Direct3D 11, 0% CPU, no afecta monitores 144Hz, captura juegos DirectX/Vulkan sin pantalla negra.
+        # 2. Desktop Duplication API (ddagrab) en output_idx=1 por si el monitor principal está en índice 1.
+        # 3. GDI Grab (gdigrab) con resolución nativa.
+        # 4. GDI Grab universal.
+        candidates = []
 
+        # 1. ddagrab output 0
+        for enc_name, enc_flags in encoder_combos:
+            candidates.append((
+                f"DirectX Desktop Duplication (ddagrab 0, {enc_name})",
+                [
+                    ffmpeg_bin,
+                    "-hide_banner",
+                    "-loglevel", "error",
+                    "-f", "lavfi",
+                    "-i", "ddagrab=framerate=60:draw_mouse=1",
+                    "-vf", "scale=min(1920\\,iw):-2,format=yuv420p",
+                    "-c:v", enc_name,
+                    *enc_flags,
+                    "-b:v", "3000k",
+                    "-maxrate", "3500k",
+                    "-bufsize", "1500k",
+                    "-f", "rtsp",
+                    "-rtsp_transport", "tcp",
+                    rtsp_url
+                ]
+            ))
+
+        # 2. ddagrab output 1
+        for enc_name, enc_flags in encoder_combos:
+            candidates.append((
+                f"DirectX Desktop Duplication (ddagrab 1, {enc_name})",
+                [
+                    ffmpeg_bin,
+                    "-hide_banner",
+                    "-loglevel", "error",
+                    "-f", "lavfi",
+                    "-i", "ddagrab=output_idx=1:framerate=60:draw_mouse=1",
+                    "-vf", "scale=min(1920\\,iw):-2,format=yuv420p",
+                    "-c:v", enc_name,
+                    *enc_flags,
+                    "-b:v", "3000k",
+                    "-maxrate", "3500k",
+                    "-bufsize", "1500k",
+                    "-f", "rtsp",
+                    "-rtsp_transport", "tcp",
+                    rtsp_url
+                ]
+            ))
+
+        # 3. GDI Grab con dimensiones de monitor
+        gdi_size_args = []
+        if virt_x == 0 and virt_y == 0:
+            gdi_size_args = ["-offset_x", "0", "-offset_y", "0", "-video_size", f"{screen_w}x{screen_h}"]
+
+        for enc_name, enc_flags in encoder_combos:
+            candidates.append((
+                f"GDI Grab ({enc_name})",
+                [
+                    ffmpeg_bin,
+                    "-hide_banner",
+                    "-loglevel", "error",
+                    "-f", "gdigrab",
+                    "-framerate", "60",
+                    *gdi_size_args,
+                    "-i", "desktop",
+                    "-vf", "scale=min(1920\\,iw):-2,format=yuv420p",
+                    "-c:v", enc_name,
+                    *enc_flags,
+                    "-b:v", "3000k",
+                    "-maxrate", "3500k",
+                    "-bufsize", "1500k",
+                    "-f", "rtsp",
+                    "-rtsp_transport", "tcp",
+                    rtsp_url
+                ]
+            ))
+
+        # 4. GDI Grab universal sin parámetros de tamaño
+        for enc_name, enc_flags in encoder_combos:
+            candidates.append((
+                f"GDI Grab Universal ({enc_name})",
+                [
+                    ffmpeg_bin,
+                    "-hide_banner",
+                    "-loglevel", "error",
+                    "-f", "gdigrab",
+                    "-framerate", "60",
+                    "-i", "desktop",
+                    "-vf", "scale=min(1920\\,iw):-2,format=yuv420p",
+                    "-c:v", enc_name,
+                    *enc_flags,
+                    "-b:v", "3000k",
+                    "-maxrate", "3500k",
+                    "-bufsize", "1500k",
+                    "-f", "rtsp",
+                    "-rtsp_transport", "tcp",
+                    rtsp_url
+                ]
+            ))
+
+        # Probar candidatos en orden
+        for desc, cmd in candidates:
             try:
                 self.process = subprocess.Popen(
-                    cmd_gdi,
+                    cmd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                     creationflags=creationflags
                 )
 
-                # Verificación estricta de estabilidad (esperar 0.6s)
-                time.sleep(0.6)
+                time.sleep(0.7)
                 if self.process.poll() is None:
                     self.is_streaming = True
                     self._start_watchdog()
-                    print(f"[OK] Transmisión iniciada con GDI grab a 60 FPS ({enc_name}).")
+                    print(f"[OK] Transmisión iniciada exitosamente con {desc}.")
                     return True
                 else:
-                    _, err = self.process.communicate(timeout=0.5)
+                    _, err = self.process.communicate(timeout=0.4)
                     err_text = err.decode('utf-8', errors='ignore') if err else ""
-                    print(f"gdigrab con {enc_name} no disponible ({err_text.strip()}).")
+                    print(f"[x] {desc} no disponible ({err_text.strip()[:140]}).")
             except Exception as exc:
-                print(f"Excepción iniciando gdigrab con {enc_name}:", exc)
+                print(f"Excepción probando {desc}:", exc)
 
-        # Intento 2: Fallback Universal por Tubería PIL -> stdin FFmpeg (con libx264)
+        # Intento de último recurso: Fallback Universal por Tubería PIL -> stdin FFmpeg (protegido contra saturación de CPU)
         try:
             cap_w, cap_h = 1280, 720
             cmd_pipe = [
@@ -816,7 +907,7 @@ class ScreenCaptureStreamer:
                 stderr=subprocess.PIPE,
                 creationflags=creationflags
             )
-            time.sleep(0.4)
+            time.sleep(0.5)
             if self.process.poll() is not None:
                 _, err = self.process.communicate(timeout=0.5)
                 err_str = err.decode('utf-8', errors='ignore') if err else "Error desconocido"
@@ -870,21 +961,32 @@ class ScreenCaptureStreamer:
         try:
             from PIL import ImageGrab
             interval = 1.0 / 25.0
+            error_count = 0
             while self.is_streaming and self.process and self.process.poll() is None:
                 t0 = time.time()
                 try:
-                    frame = ImageGrab.grab()
+                    frame = ImageGrab.grab(all_screens=True)
                     if frame.size != (w, h):
                         frame = frame.resize((w, h))
                     raw_bytes = frame.tobytes()
                     if self.process and self.process.stdin:
                         self.process.stdin.write(raw_bytes)
                         self.process.stdin.flush()
-                except Exception:
-                    pass
+                    error_count = 0
+                except Exception as ex:
+                    error_count += 1
+                    if error_count > 15:
+                        print(f"[!] Falla continua en captura PIL: {ex}")
+                        if self.on_stream_died:
+                            self.on_stream_died("No se pudo capturar la pantalla (permisos de escritorio de Windows).")
+                        break
+                    time.sleep(0.04)
+
                 to_sleep = interval - (time.time() - t0)
                 if to_sleep > 0:
                     time.sleep(to_sleep)
+                else:
+                    time.sleep(0.003) # Prevenir bloqueo y saturación de CPU
         except Exception as exc:
             print("Excepción en loop PIL:", exc)
 
@@ -1425,6 +1527,7 @@ class VoiceClientApp:
 
         # Autologin loading
         self.config_path = os.path.join(os.path.dirname(__file__), ".concordia_profile.json")
+        self.last_ip = ""
         self._load_config()
 
         # Widgets and Grid
@@ -1471,13 +1574,18 @@ class VoiceClientApp:
                     data = json.load(f)
                     self.username = data.get("username", "")
                     self.selected_avatar_path = data.get("avatar_path", None)
+                    self.last_ip = data.get("last_ip", "")
             except Exception:
                 pass
 
     def _save_config(self):
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump({"username": self.username, "avatar_path": self.selected_avatar_path}, f)
+                json.dump({
+                    "username": self.username,
+                    "avatar_path": self.selected_avatar_path,
+                    "last_ip": self.last_ip
+                }, f)
         except Exception:
             pass
 
@@ -1597,6 +1705,8 @@ class VoiceClientApp:
             text_color=TEXT_PRIMARY,
             placeholder_text="127.0.0.1"
         )
+        if self.last_ip:
+            self.entry_ip.insert(0, self.last_ip)
         self.entry_ip.pack(fill="x", padx=32, pady=(0, 14))
 
         # Form: Port
@@ -2188,6 +2298,7 @@ class VoiceClientApp:
         self.username = username
         self.is_host = False
         self.server_addr = (ip, port)
+        self.last_ip = ip
         self._save_config()
 
         if not self.engine.start(ip, port, username, is_host=False):
