@@ -182,13 +182,27 @@ class SFUServer:
         mediamtx_cfg = os.path.join(bin_dir, "mediamtx.yml")
         if os.path.exists(mediamtx_bin):
             try:
-                if not os.path.exists(mediamtx_cfg):
-                    with open(mediamtx_cfg, "w", encoding="utf-8") as f:
-                        f.write("paths:\n  all_others:\n")
-                    logger.info("Created default mediamtx.yml with all_others path.")
+                # Escribir configuración libre de conflictos de puertos (TCP directo, RTP en 8002/8003)
+                mediamtx_content = (
+                    "api: no\n"
+                    "rtmp: no\n"
+                    "hls: no\n"
+                    "webrtc: no\n"
+                    "srt: no\n"
+                    "rtspTransports: [tcp]\n"
+                    "rtspAddress: :8554\n"
+                    "rtpAddress: :8002\n"
+                    "rtcpAddress: :8003\n"
+                    "paths:\n"
+                    "  all_others:\n"
+                )
+                with open(mediamtx_cfg, "w", encoding="utf-8") as f:
+                    f.write(mediamtx_content)
+                logger.info("Created robust mediamtx.yml with TCP transport on 8554.")
+
                 creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
                 self._mediamtx_process = subprocess.Popen(
-                    [mediamtx_bin],
+                    [mediamtx_bin, mediamtx_cfg],
                     cwd=bin_dir,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

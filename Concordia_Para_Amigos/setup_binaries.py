@@ -112,15 +112,26 @@ def setup_binaries():
                 except Exception:
                     pass
 
-    # Asegurar la creacion de mediamtx.yml para permitir la publicacion de rutas dinamicas
+    # Asegurar la creacion de mediamtx.yml para permitir la publicacion de rutas dinamicas sin conflicto de puertos
     mediamtx_cfg = os.path.join(BIN_DIR, "mediamtx.yml")
-    if not os.path.exists(mediamtx_cfg):
-        try:
-            with open(mediamtx_cfg, "w", encoding="utf-8") as f:
-                f.write("paths:\n  all_others:\n")
-            print("[OK] mediamtx.yml configurado correctamente.")
-        except Exception as e:
-            print(f"[X] No se pudo crear mediamtx.yml: {e}")
+    try:
+        with open(mediamtx_cfg, "w", encoding="utf-8") as f:
+            f.write(
+                "api: no\n"
+                "rtmp: no\n"
+                "hls: no\n"
+                "webrtc: no\n"
+                "srt: no\n"
+                "rtspTransports: [tcp]\n"
+                "rtspAddress: :8554\n"
+                "rtpAddress: :8002\n"
+                "rtcpAddress: :8003\n"
+                "paths:\n"
+                "  all_others:\n"
+            )
+        print("[OK] mediamtx.yml configurado correctamente.")
+    except Exception as e:
+        print(f"[X] No se pudo crear mediamtx.yml: {e}")
 
     if not all_ok:
         sys.exit(1)

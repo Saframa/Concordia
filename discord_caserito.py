@@ -646,7 +646,7 @@ class HardwareEncoderDetector:
             return cls._cached_encoder
 
         # 1. Probar NVIDIA NVENC (ultra baja latencia, 0% CPU, no afecta juegos)
-        nvenc_flags = ["-preset", "p1", "-tune", "ull", "-zerolatency", "1", "-pix_fmt", "yuv420p"]
+        nvenc_flags = ["-preset", "p1", "-tune", "ull", "-zerolatency", "1"]
         cmd = [
             ffmpeg_bin,
             "-hide_banner",
@@ -654,6 +654,7 @@ class HardwareEncoderDetector:
             "-f", "lavfi",
             "-i", "testsrc=size=320x240:rate=1",
             "-frames:v", "1",
+            "-pix_fmt", "yuv420p",
             "-c:v", "h264_nvenc",
             *nvenc_flags,
             "-f", "null",
@@ -757,9 +758,12 @@ class ScreenCaptureStreamer:
         # 3. GDI Grab (gdigrab) con resolución nativa.
         # 4. GDI Grab universal.
         candidates = []
+        gop_flags = ["-g", "30", "-keyint_min", "30", "-forced-idr", "1"]
+        bitrate_flags = ["-b:v", "3500k", "-maxrate", "4000k", "-bufsize", "2000k"]
 
         # 1. ddagrab output 0
         for enc_name, enc_flags in encoder_combos:
+            vf_args = ["-vf", "hwdownload,format=nv12"] if enc_name == "libx264" else []
             candidates.append((
                 f"DirectX Desktop Duplication (ddagrab 0, {enc_name})",
                 [
@@ -768,12 +772,11 @@ class ScreenCaptureStreamer:
                     "-loglevel", "error",
                     "-f", "lavfi",
                     "-i", "ddagrab=framerate=60:draw_mouse=1",
-                    "-vf", "scale=min(1920\\,iw):-2,format=yuv420p",
+                    *vf_args,
                     "-c:v", enc_name,
                     *enc_flags,
-                    "-b:v", "3000k",
-                    "-maxrate", "3500k",
-                    "-bufsize", "1500k",
+                    *gop_flags,
+                    *bitrate_flags,
                     "-f", "rtsp",
                     "-rtsp_transport", "tcp",
                     rtsp_url
@@ -782,6 +785,7 @@ class ScreenCaptureStreamer:
 
         # 2. ddagrab output 1
         for enc_name, enc_flags in encoder_combos:
+            vf_args = ["-vf", "hwdownload,format=nv12"] if enc_name == "libx264" else []
             candidates.append((
                 f"DirectX Desktop Duplication (ddagrab 1, {enc_name})",
                 [
@@ -790,12 +794,11 @@ class ScreenCaptureStreamer:
                     "-loglevel", "error",
                     "-f", "lavfi",
                     "-i", "ddagrab=output_idx=1:framerate=60:draw_mouse=1",
-                    "-vf", "scale=min(1920\\,iw):-2,format=yuv420p",
+                    *vf_args,
                     "-c:v", enc_name,
                     *enc_flags,
-                    "-b:v", "3000k",
-                    "-maxrate", "3500k",
-                    "-bufsize", "1500k",
+                    *gop_flags,
+                    *bitrate_flags,
                     "-f", "rtsp",
                     "-rtsp_transport", "tcp",
                     rtsp_url
@@ -821,9 +824,8 @@ class ScreenCaptureStreamer:
                     "-vf", "scale=min(1920\\,iw):-2,format=yuv420p",
                     "-c:v", enc_name,
                     *enc_flags,
-                    "-b:v", "3000k",
-                    "-maxrate", "3500k",
-                    "-bufsize", "1500k",
+                    *gop_flags,
+                    *bitrate_flags,
                     "-f", "rtsp",
                     "-rtsp_transport", "tcp",
                     rtsp_url
@@ -844,9 +846,8 @@ class ScreenCaptureStreamer:
                     "-vf", "scale=min(1920\\,iw):-2,format=yuv420p",
                     "-c:v", enc_name,
                     *enc_flags,
-                    "-b:v", "3000k",
-                    "-maxrate", "3500k",
-                    "-bufsize", "1500k",
+                    *gop_flags,
+                    *bitrate_flags,
                     "-f", "rtsp",
                     "-rtsp_transport", "tcp",
                     rtsp_url
@@ -1046,6 +1047,7 @@ class ScreenShareViewer:
             "--osc=no",
             "--osd-level=0",
             "--demuxer-lavf-o=rtsp_transport=tcp",
+            "--rtsp-transport=tcp",
             self.stream_url
         ]
 
