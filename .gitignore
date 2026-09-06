@@ -1,0 +1,18 @@
+﻿# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.concordia_profile.json
+
+# Binarios descargados automaticamente
+bin/*.exe
+bin/*.7z
+bin/*.zip
+bin/*.key
+bin/*.crt
+!bin/mediamtx.yml
+
+# IDE & Editor Configs
+.vscode/
+.idea/
