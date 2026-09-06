@@ -1,0 +1,10 @@
+﻿====================================================
+               CONCORDIA - INSTRUCCIONES
+====================================================
+
+1. Mantén todos los archivos dentro de esta carpeta.
+2. Haz doble clic en 'instalar_y_jugar.bat'.
+   - La primera vez configurará automáticamente las librerías y herramientas de video.
+3. ¡Listo! Escribe tu nombre, la IP que te pase el Host y dale a 'Conectar'.
+
+* Nota: En el futuro puedes usar 'Abrir Discord.vbs' para abrir la aplicación directamente sin ventanas negras de fondo.

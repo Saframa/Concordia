@@ -1,0 +1,43 @@
+﻿# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Virtual Environments
+venv/
+env/
+.venv/
+ENV/
+
+# Local User Configurations & Cache
+.concordia_profile.json
+
+# Binaries & Large Executables (>50MB, auto-downloaded by setup_binaries.py / instalar_y_jugar.bat)
+bin/*.exe
+bin/*.7z
+bin/*.zip
+bin/*.key
+bin/*.crt
+Concordia_Para_Amigos/bin/*.exe
+Concordia_Para_Amigos/bin/*.7z
+Concordia_Para_Amigos/bin/*.zip
+Concordia_Para_Amigos/bin/*.key
+Concordia_Para_Amigos/bin/*.crt
+
+# Keep configuration templates in bin
+!bin/mediamtx.yml
+!Concordia_Para_Amigos/bin/mediamtx.yml
+
+# IDE & Editor Configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Agents internal workspace
+.agents/
